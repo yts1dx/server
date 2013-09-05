@@ -1,0 +1,482 @@
+#include<netinet/in.h>
+#include<sys/types.h>
+#include<sys/socket.h>
+#include<stdio.h>
+#include<stdlib.h>
+#include<string.h>
+#include<errno.h>
+#include<unistd.h>
+#include<string>
+#include<iostream>
+#include<occi.h>
+#include<arpa/inet.h>
+#include "tinyxml.h"
+#include "tinystr.h"
+#include <map>
+#include<pthread.h>
+#include "createFile.h"
+
+#define SERVER_PORT 6666
+#define LENGTH_OF_LISTEN_QUEUE 20
+#define BUFFER_SIZE 1024
+#define FILE_NAME_MAX_SIZE 512
+#define DB_USER "chezai"
+#define DB_PWD "Apple123"
+#define DB_CONN "61.167.40.249:1521/orcl11g.us.oracle.com"
+//#define DB_CONN "222.27.255.110:1521/ORCL.168.1.126"
+using namespace std;
+using namespace oracle::occi;
+
+enum authenRst{
+    errUser,
+    errPwd,
+    online,
+    success
+};
+
+
+int SendMessage(int socketFd,char * sendBuffer,int sendLen);
+int ReceiveMessage(int sockFd,char recvMsg[]);
+int EstablishServer(struct sockaddr_in * addr,socklen_t addrLen,int port);
+authenRst DataBaseAuthenticate(Connection * conn,string user,string pwd);
+void SendFile(int socketFd,Connection* conn,string strName);
+unsigned long get_file_size(const char *path);
+void CreateDbXml(Connection*conn,string fileName);
+void* ClientService(void*arg);
+void SendAllFile(int clientFd,Connection*conn);
+    
+map<string,string> G_userState; // 用来记录用户的在线信息
+pthread_mutex_t f_lock=PTHREAD_MUTEX_INITIALIZER;
+
+int main()
+{
+   //定义用于socket通信的变量
+   struct sockaddr_in server_addr,client_addr;
+   int serverFd,clientFd;
+   socklen_t clientLen;
+   
+   // 建立socket连接
+   serverFd=EstablishServer(&server_addr,sizeof(server_addr),SERVER_PORT); 
+
+   
+   for(;;)
+   {
+       //等待连接的请求
+       if ((clientFd=accept(serverFd,(struct sockaddr*)&client_addr,&clientLen))<0)
+       {
+           perror("accept:");
+           exit(1);
+       }
+       cout<<"-------------------------------------------------------------------"<<endl;
+       printf("accept from %s:%d\n",inet_ntoa(client_addr.sin_addr),client_addr.sin_port);
+
+       pthread_t clientTid;
+
+       int pthrst=pthread_create(&clientTid,NULL,ClientService,(void*)&clientFd);
+       if(pthrst!=0)
+       {
+           perror("pthread_create");
+       }
+       
+   }
+
+   
+   return 0;
+}
+
+int SendMessage(int socketFd,char * sendBuffer,int sendLen)
+{
+    //发送数据的长度
+    char len[5];
+    snprintf(len,sizeof(len),"%04d",sendLen);
+    if(send(socketFd,len,sizeof(len)-1,0)<0)
+    {
+        perror("send :");
+        return -1;
+    }
+
+    //发送数据
+    int sendRecv;
+    int offset=0;//数据包中已经发送的字节数
+    int dataLeft=sendLen;//数据包中已经发送的字节数
+    int rstLen=0; //用来保存一次发送数据所发送的字节数
+    
+    while(dataLeft>0)
+      {
+	if((rstLen=send(socketFd,sendBuffer,sendLen,0))<0)
+	  {
+	    perror("send sendBuffer:");
+	    return -1;
+	  }
+
+	offset+=rstLen;
+	dataLeft-=rstLen;
+      }
+
+    return offset;
+
+    
+}
+
+int ReceiveMessage(int sockFd,char recvMsg[])
+{
+    //获取接收数据的长度
+    char msgSize[5];
+    int  sizeLen=sizeof(msgSize);
+    if(recv(sockFd,msgSize,sizeLen-1,0)<0)
+    {
+        perror("recv:");
+    }
+    msgSize[sizeLen-1]='\0';
+    int msgLen=atoi(msgSize);
+
+    int recvLen;
+    int offset=0;
+    int dataLeft=msgLen;
+    int rstLen=0;
+
+    while(dataLeft>0)
+      {
+	 if((rstLen=recv(sockFd,recvMsg,msgLen,0))<0)
+          {
+      
+              perror("recv:");
+          }
+
+	 offset+=rstLen;
+	 dataLeft-=rstLen;
+      }
+    
+
+    recvMsg[msgLen]='\0';
+       
+    return offset;
+        
+}
+
+int EstablishServer(struct sockaddr_in * addr,socklen_t addrLen,int port)
+{
+    //socklen=sizeof(clientaddr);
+
+    int	listenfd=socket(AF_INET,SOCK_STREAM,0);
+    
+	if(listenfd<0)
+	{
+	  perror("socket error");
+	  return -1;
+	}
+
+	bzero(addr,addrLen);
+
+    addr->sin_family=AF_INET;
+    addr->sin_addr.s_addr=htonl(INADDR_ANY);
+    addr->sin_port=htons(port);
+	// servaddr.sin_family=AF_INET;
+	// servaddr.sin_addr.s_addr=htonl(INADDR_ANY);
+	// servaddr.sin_port=htons(8787);
+
+	if(bind(listenfd,(struct sockaddr*)addr,addrLen)<0)
+	{
+	 perror("bind error");
+	 return -1;
+	}
+
+    if(listen(listenfd,LENGTH_OF_LISTEN_QUEUE)<0)
+	{
+	 perror("listen error");
+	 return -1;
+	}
+
+        return listenfd;
+}
+
+//验证用户名和密码是否正确
+authenRst DataBaseAuthenticate(Connection * conn,string user,string pwd)
+{
+    
+    
+      Statement* stmt=conn->createStatement("select userName,userPw from T_user where username='"+user+"'");
+      ResultSet* rs=stmt->executeQuery();
+
+       //判断是否存在当前用户名
+      if(rs->next()==true)
+      {
+          string dbUser=rs->getString(1);
+          string dbPwd=rs->getString(2);
+          //cout<<"username:"<<username<<"   pwd:"<<pwd<<endl;
+          //判断密码是否正确
+          if(pwd==dbPwd)
+          {
+              stmt->closeResultSet(rs);
+              conn->terminateStatement(stmt);
+              return success;
+          }
+          else
+          {
+              stmt->closeResultSet(rs);
+              conn->terminateStatement(stmt);
+              return errPwd;
+          }
+          
+      }
+      else
+      {
+          stmt->closeResultSet(rs);
+          conn->terminateStatement(stmt);
+          return errUser;
+      }
+
+      
+}
+
+//发送文件
+void SendFile(int socketFd,Connection*conn,string strName)
+{
+   
+    //连接数据库，生成需要发送的文件
+    //CreateDbXml(conn,fileName);
+
+    //定义发送用到的缓冲区
+    const char *fileName=strName.c_str();
+    char buffer[BUFFER_SIZE];
+
+    //发送文件的名称
+    cout<<fileName<<" will send!"<<endl;
+    bzero(buffer,sizeof(buffer));
+    snprintf(buffer,sizeof(buffer),"%s",fileName);
+    SendMessage(socketFd,buffer,strlen(buffer));
+    
+    //获取文件长度,并发送
+    unsigned long fileLen=get_file_size(fileName);
+    cout<<"fileLen: "<<fileLen<<endl;
+    bzero(buffer,sizeof(buffer));
+    snprintf(buffer,sizeof(buffer),"%u",fileLen);
+    SendMessage(socketFd,buffer,strlen(buffer));
+    
+    
+    //打开文件
+    FILE * fp=fopen(fileName,"r");
+    if(fp==NULL)
+    {
+        cout<<"File "<<fileName<<" not fount!"<<endl;
+    }
+    
+    //发送文件
+    bzero(buffer,sizeof(buffer));
+    int file_block_length=0;
+    
+    while((file_block_length=fread(buffer,sizeof(char),BUFFER_SIZE,fp))>0) 
+    {
+        //send(socketFd,buffer,file_block_length,0);
+        SendMessage(socketFd,buffer,file_block_length);
+         //cout<<buffer<<endl;
+	
+         bzero(buffer,sizeof(buffer));
+   
+    }
+ 
+       fclose(fp);
+       cout<<"File "<<fileName<<" transfer finished!"<<endl;
+}
+
+//获取文件的大小
+unsigned long get_file_size(const char *path)  
+{  
+    unsigned long filesize = -1;  
+    FILE *fp;  
+    fp = fopen(path, "r");  
+    if(fp == NULL)  
+        return filesize;  
+    fseek(fp, 0L, SEEK_END);  
+    filesize = ftell(fp);  
+    fclose(fp);  
+    return filesize;  
+}
+
+
+//由数据库生成xml文件
+void CreateDbXml(Connection*conn,string fileName)
+{
+   string table=fileName.substr(0,fileName.find('.'));
+   Statement *stmt=conn->createStatement("select * from "+table);
+   ResultSet *rs=stmt->executeQuery();
+   
+    //创建一个xml都文档对象
+    TiXmlDocument * myDocument=new TiXmlDocument();
+
+    //创建xml文档的声明
+    TiXmlDeclaration * declaration=new TiXmlDeclaration("1.0","UTF-8","no");
+    myDocument->LinkEndChild(declaration);
+    
+    //创建一个根元素并连接
+    TiXmlElement*RootElement=new TiXmlElement("VitiCar");
+    myDocument->LinkEndChild(RootElement);
+
+   while(rs->next()==true)
+   {
+       string carID=rs->getString(1);
+       string carNum=rs->getString(2);
+       //cout<<"userid:"<<userid<<"carid"<<carid<<endl;
+
+    
+    //创建子元素
+    TiXmlElement*PersionElement=new TiXmlElement("Car");
+    RootElement->LinkEndChild(PersionElement);
+
+    //设置子元素属性
+    PersionElement->SetAttribute("CarId",carID);
+    PersionElement->SetAttribute("CarNum",carNum);
+   }
+
+    //保存文件
+    myDocument->SaveFile(fileName);
+
+    cout<<fileName<<" created!"<<endl;
+    
+   stmt->closeResultSet(rs);
+   conn->terminateStatement(stmt);
+   
+   
+}
+
+//客户端进行通信的线程
+void  *ClientService(void*arg)
+{
+       //获得自身的线程号
+       pthread_t tid=pthread_self();
+       //获得传送过来的clientFd
+       int clientFd=*(int*)arg;
+       cout<<"New thread created,the tid is "<<tid<<" the clientFd is "<<clientFd<<endl;
+       
+       //连接数据库
+       Environment *env=Environment::createEnvironment(Environment::DEFAULT);
+       //数据库连接
+       Connection *conn=env->createConnection(DB_USER,DB_PWD,DB_CONN);
+
+       
+       //定义接收和发送数据的缓冲区
+       char recvMsg[BUFFER_SIZE],sendMsg[BUFFER_SIZE];
+       //接收客户端发送过的用户名和密码
+       bzero(recvMsg,sizeof(recvMsg));
+       ReceiveMessage(clientFd,recvMsg);
+
+       string sockUserPwd=recvMsg;
+       int pos=sockUserPwd.find('%');//获得用户名与密码的分段点
+       string userState=sockUserPwd.substr(0,1);//获取用户是上线请求还是下线请求
+       string sockUser=sockUserPwd.substr(1,pos-1);
+       string sockPwd=sockUserPwd.substr(pos+1,sockUserPwd.length());
+       cout<<"receive user: "<<sockUser<<"  pwd: "<<sockPwd<<" requst: "<<userState<<endl;
+
+       //验证用户名密码,对于用户验证的大体流程是，首先验证用户名密码是否正确，如果错误发送错误信息给客户端
+       //如果正确，再判断客户端是上线请求还是下线请求，如果是上线请求，进一步判断，用户是否已经在线。
+       //因此用户验证一共会有五种结果：1.用户名错误。2.密码错误。3.上线成功。4.重复登录。5.下线成功。
+       authenRst rst = DataBaseAuthenticate(conn,sockUser,sockPwd);
+      
+       //如果用户验证失败，结束线程
+       if(rst==errUser||rst==errPwd)
+       {
+           switch(rst)
+           {
+           case errUser:snprintf(sendMsg,sizeof(sendMsg),"%s","errUser");break;
+           case errPwd:snprintf(sendMsg,sizeof(sendMsg),"%s","errPwd");break;
+               //case success:snprintf(sendMsg,sizeof(sendMsg),"%s","success");break;
+               //case online:snprintf(sendMsg,sizeof(sendMsg),"%s","online");break;
+           }
+
+            cout<<"The user "<<sockUser<<" is: "<<sendMsg<<endl;
+            SendMessage(clientFd,sendMsg,strlen(sendMsg));
+            
+           //关闭与客户端连接的套接字
+           close(clientFd);
+
+           //关闭数据库连接
+           env->terminateConnection(conn);
+           Environment::terminateEnvironment(env);
+           
+           pthread_exit((void*)0);    
+       }
+
+       
+       //用户名密码验证成功后，判断用户是上线请求还是下线请求
+       if (userState=="U")
+       {
+           cout<<"wait for map count"<<endl;
+           pthread_mutex_lock(&f_lock);
+           
+           //判断用户是否已经在线
+           int cntRst=G_userState.count(sockUser);
+           cout<<"cntRst: "<<cntRst<<endl;
+           if (cntRst!=0)
+           {
+               pthread_mutex_unlock(&f_lock);
+               cout<<sockUser<<" is already online"<<endl;
+               snprintf(sendMsg,sizeof(sendMsg),"%s","online");
+               SendMessage(clientFd,sendMsg,strlen(sendMsg));
+               //return online;//表明用户已经在线，直接返回用户在线信息
+                //关闭与客户端连接的套接字
+               close(clientFd);
+
+               //关闭数据库连接
+               env->terminateConnection(conn);
+               Environment::terminateEnvironment(env);
+           
+               pthread_exit((void*)0); 
+           }
+           else
+           {
+               pthread_mutex_unlock(&f_lock);
+               cout<<sockUser<<" login successfully"<<endl;
+                //如果用户是首次登录，则向用户发送文件，并且更新Map表
+               snprintf(sendMsg,sizeof(sendMsg),"%s","success");
+               SendMessage(clientFd,sendMsg,strlen(sendMsg));
+
+               //生成所有需要发送的文件
+               CreateAllFile(conn,sockUser);
+               
+               //向服务端发送所需要的文件
+               SendAllFile(clientFd,conn);
+
+               pthread_mutex_lock(&f_lock);
+               //更新map表，向表中添加用户信息
+               G_userState.insert(make_pair(sockUser,sockPwd));
+               pthread_mutex_unlock(&f_lock);
+           }
+
+           
+       }
+       else//如果是下线请求
+       {
+           //向用户发送下线信息
+           cout<<sockUser<<" is logout"<<endl;
+            snprintf(sendMsg,sizeof(sendMsg),"%s","logout");
+            SendMessage(clientFd,sendMsg,strlen(sendMsg));
+            
+           pthread_mutex_lock(&f_lock);
+           //删除map表，由表中删除用户信息
+           G_userState.erase(sockUser);
+           pthread_mutex_unlock(&f_lock);
+       }
+      
+
+       
+       
+
+       //关闭与客户端连接的套接字
+     //  close(clientFd);
+
+       //关闭数据库连接
+       env->terminateConnection(conn);
+       Environment::terminateEnvironment(env);
+}
+
+void SendAllFile(int clientFd,Connection*conn)
+{
+    
+    
+    SendFile(clientFd,conn,"ordinary.xml");
+    SendFile(clientFd,conn,"StateMap.xml");
+    SendFile(clientFd,conn,"Status.xml");
+    SendFile(clientFd,conn,"AlarmMap.xml");
+    SendFile(clientFd,conn,"CarGroup.txt");
+    SendFile(clientFd,conn,"IdNumberMap.xml");
+}
