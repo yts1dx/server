@@ -471,7 +471,10 @@ void  *ClientService(void*arg)
 
 void SendAllFile(int clientFd,Connection*conn)
 {
-    
+    //send the number of file
+    char count[4];
+    snprintf(count,sizeof(count),"%d",6);
+    SendMessage(clientFd,count,strlen(count));
     
     SendFile(clientFd,conn,"ordinary.xml");
     SendFile(clientFd,conn,"StateMap.xml");
