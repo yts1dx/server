@@ -44,6 +44,7 @@ unsigned long get_file_size(const char *path);
 void CreateDbXml(Connection*conn,string fileName);
 void* ClientService(void*arg);
 void SendAllFile(int clientFd,Connection*conn);
+string GetUserId(Connection* conn,string user);
     
 map<string,string> G_userState; // 用来记录用户的在线信息
 pthread_mutex_t f_lock=PTHREAD_MUTEX_INITIALIZER;
@@ -229,6 +230,23 @@ authenRst DataBaseAuthenticate(Connection * conn,string user,string pwd)
       
 }
 
+string GetUserId(Connection* conn,string user)
+{
+    Statement* stmt=conn->createStatement("select userid from T_user  where username='"+user+"'");
+
+    string userID="";
+    ResultSet* rs=stmt->executeQuery();
+    if (rs->next()==true)
+    {
+       userID =rs->getString(1);
+        return userID;
+    }
+
+    stmt->closeResultSet(rs);
+    conn->terminateStatement(stmt);
+   
+    return userID;
+}
 //发送文件
 void SendFile(int socketFd,Connection*conn,string strName)
 {
@@ -429,6 +447,13 @@ void  *ClientService(void*arg)
                 //如果用户是首次登录，则向用户发送文件，并且更新Map表
                snprintf(sendMsg,sizeof(sendMsg),"%s","success");
                SendMessage(clientFd,sendMsg,strlen(sendMsg));
+
+               //send the userid of this user
+               string userId=GetUserId(conn,sockUser);
+               bzero(sendMsg,sizeof(sendMsg));
+               snprintf(sendMsg,sizeof(sendMsg),"%s",userId.c_str());
+               SendMessage(clientFd,sendMsg,strlen(sendMsg));
+               
 
                //生成所有需要发送的文件
                CreateAllFile(conn,sockUser);
