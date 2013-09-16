@@ -251,9 +251,6 @@ string GetUserId(Connection* conn,string user)
 void SendFile(int socketFd,Connection*conn,string strName)
 {
    
-    //连接数据库，生成需要发送的文件
-    //CreateDbXml(conn,fileName);
-
     //定义发送用到的缓冲区
     const char *fileName=strName.c_str();
     char buffer[BUFFER_SIZE];
