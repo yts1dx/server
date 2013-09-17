@@ -232,7 +232,7 @@ authenRst DataBaseAuthenticate(Connection * conn,string user,string pwd)
 
 string GetUserId(Connection* conn,string user)
 {
-    Statement* stmt=conn->createStatement("select userid from T_user  where username='"+user+"'");
+    Statement* stmt=conn->createStatement("select clientid from T_user  where username='"+user+"'");
 
     string userID="";
     ResultSet* rs=stmt->executeQuery();

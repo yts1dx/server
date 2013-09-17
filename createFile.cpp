@@ -151,7 +151,7 @@ void CreateCarGroup(Connection*conn,string userName)
     while(rs->next()==true)
     {
         string groupName=rs->getString(1);
-        cout<<groupName<<"---------"<<endl;
+        //cout<<groupName<<"---------"<<endl;
         bzero(content,sizeof(content));
         snprintf(content,sizeof(content),"%s",groupName.c_str());
         fwrite(content,sizeof(char),strlen(content),file);
@@ -164,7 +164,7 @@ void CreateCarGroup(Connection*conn,string userName)
         while(rsCar->next()==true)
         {
             string carNum=rsCar->getString(1);
-            cout<<carNum<<endl;
+            //cout<<carNum<<endl;
 
             bzero(content,sizeof(content));
             snprintf(content,sizeof(content),"%s",(" "+carNum).c_str());
