@@ -130,7 +130,7 @@ void CreateStateMap(Connection*conn)
     TiXmlElement *RootElement=new TiXmlElement("StateMap");
     myDocument->LinkEndChild(RootElement);
     
-    StateMapDBOperate(conn,"T_ResolutionContent",RootElement);
+    StateMapDBOperate(conn,"T_ResolutionStateContent",RootElement);
     
     myDocument->SaveFile("StateMap.xml");
 }
