@@ -45,7 +45,8 @@ void CreateDbXml(Connection*conn,string fileName);
 void* ClientService(void*arg);
 void SendAllFile(int clientFd,Connection*conn);
 string GetUserId(Connection* conn,string user);
-    
+ssize_t readn(int fd,void * vptr,size_t n);
+ssize_t writen(int fd,void * vptr,size_t n);
 map<string,string> G_userState; // 用来记录用户的在线信息
 pthread_mutex_t f_lock=PTHREAD_MUTEX_INITIALIZER;
 
@@ -121,40 +122,111 @@ int SendMessage(int socketFd,char * sendBuffer,int sendLen)
 
 int ReceiveMessage(int sockFd,char recvMsg[])
 {
-    //获取接收数据的长度
-    char msgSize[5];
-    int  sizeLen=sizeof(msgSize);
-    if(recv(sockFd,msgSize,sizeLen-1,0)<0)
-    {
-        perror("recv:");
-    }
-    msgSize[sizeLen-1]='\0';
-    int msgLen=atoi(msgSize);
+    // //获取接收数据的长度
+    // char msgSize[5];
+    // int  sizeLen=sizeof(msgSize);
+    // if(recv(sockFd,msgSize,sizeLen-1,0)<0)
+    // {
+    //     perror("recv:");
+    // }
+    // msgSize[sizeLen-1]='\0';
+    // int msgLen=atoi(msgSize);
 
-    int recvLen;
-    int offset=0;
-    int dataLeft=msgLen;
-    int rstLen=0;
+    // int recvLen;
+    // int offset=0;
+    // int dataLeft=msgLen;
+    // int rstLen=0;
 
-    while(dataLeft>0)
-      {
-	 if((rstLen=recv(sockFd,recvMsg,msgLen,0))<0)
-          {
+    // while(dataLeft>0)
+    //   {
+	//  if((rstLen=recv(sockFd,recvMsg,msgLen,0))<0)
+    //       {
       
-              perror("recv:");
-          }
+    //           perror("recv:");
+    //   }
 
-	 offset+=rstLen;
-	 dataLeft-=rstLen;
-      }
+	//  offset+=rstLen;
+	//  dataLeft-=rstLen;
+    //   }
     
 
-    recvMsg[msgLen]='\0';
+    // recvMsg[msgLen]='\0';
        
-    return offset;
+    // return offset;
+
+    char msgSize[5];
+    size_t sizeLen=sizeof(msgSize);
+    readn(sockFd,msgSize,sizeLen-1);
+    msgSize[sizeLen-1]=0;
+    int msgLen=atoi(msgSize);
+    
+    int rcvLen=readn(sockFd,recvMsg,msgLen);
+    return rcvLen;
         
 }
 
+ssize_t readn(int fd,void *vptr,size_t n)
+{
+    size_t nleft;
+    ssize_t nread;
+    char *ptr;
+    ptr=(char*)vptr;
+    nleft=n;
+    while(nleft>0)
+    {
+        if( (nread=read(fd,ptr,nleft))<0)
+        {
+            if(errno==EINTR)//read again
+            {
+                nread=0;
+            }
+            else
+            {
+                return -1;
+                pthread_exit((void*)0);//end thread
+            }
+        }
+        else if (nread==0)//receive FIN
+        {
+            close(fd);   //close socket
+            pthread_exit((void*)0);//end thread
+        }
+            
+
+        nleft-=nread;
+        ptr+=nread;
+    }
+
+    return (n-nleft);
+}
+
+ssize_t writen(int fd,const void * vptr,size_t n)
+{
+    size_t nleft;
+    ssize_t nwritten;
+    const char *ptr;
+
+    ptr=(char*)vptr;
+    nleft=n;
+    while(nleft>0)
+    {
+        if( (nwritten=write(fd,ptr,nleft))<=0)
+        {
+            if(nwritten<0 && errno==EINTR)
+                nwritten=0;
+            else
+            {
+                return -1;
+                pthread_exit((void*)0);//end thread
+            }
+                
+            
+        }
+
+        nleft-=nwritten;
+        ptr+=nwritten;
+    }
+}
 int EstablishServer(struct sockaddr_in * addr,socklen_t addrLen,int port)
 {
     //socklen=sizeof(clientaddr);
