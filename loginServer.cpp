@@ -14,6 +14,7 @@
 #include "tinystr.h"
 #include <map>
 #include<pthread.h>
+#include <stdexcept>
 #include "createFile.h"
 
 #define SERVER_PORT 6666
@@ -408,9 +409,9 @@ void CreateDbXml(Connection*conn,string fileName)
        
        table=fileName.substr(0,fileName.find('.'));
    }
-   catch(char * e)
+   catch(out_of_range &e)
    {
-       printf("sbustr erro in createDBXml\n");
+       cout<<e.what()<<endl;
        pthread_exit((void*)0);
    }
    Statement *stmt=conn->createStatement("select * from "+table);
@@ -484,14 +485,14 @@ void  *ClientService(void*arg)
 
        try
        {
-            printf("pos:%d length:%d",pos,upLen);
+           //printf("pos:%d length:%d",pos,upLen);
             userState=sockUserPwd.substr(0,1);//获取用户是上线请求还是下线请求
             sockUser=sockUserPwd.substr(1,pos-1);
             sockPwd=sockUserPwd.substr(pos+1,upLen);
        }
-       catch( char* str)
+       catch( out_of_range &e)
        {
-           printf("substr error in clientservice\n");
+           cout<<e.what()<<endl;
            pthread_exit((void*)0);
        }
        
