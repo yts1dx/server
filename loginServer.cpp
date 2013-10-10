@@ -233,6 +233,7 @@ ssize_t writen(int fd,const void * vptr,size_t n)
         ptr+=nwritten;
     }
 }
+
 int EstablishServer(struct sockaddr_in * addr,socklen_t addrLen,int port)
 {
     //socklen=sizeof(clientaddr);
@@ -395,13 +396,22 @@ unsigned long get_file_size(const char *path)
 void CreateDbXml(Connection*conn,string fileName)
 {
     
-   int findrst=fileName.find('.');
-   if(findrst==-1)
+   // int findrst=fileName.find('.');
+   // if(findrst==-1)
+   // {
+   //     printf("can not find \',\'\n");
+   //     pthread_exit((void*)0);
+   // }
+   string table;
+   try
    {
-       printf("can not find \',\'\n");
+       table=fileName.substr(0,fileName.find('.'));
+   }
+   catch(char * e)
+   {
+       printf("sbustr erro in createDBXml\n");
        pthread_exit((void*)0);
    }
-   string table=fileName.substr(0,findrst);
    Statement *stmt=conn->createStatement("select * from "+table);
    ResultSet *rs=stmt->executeQuery();
    
