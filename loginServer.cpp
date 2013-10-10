@@ -405,6 +405,7 @@ void CreateDbXml(Connection*conn,string fileName)
    string table;
    try
    {
+       
        table=fileName.substr(0,fileName.find('.'));
    }
    catch(char * e)
@@ -476,15 +477,17 @@ void  *ClientService(void*arg)
 
        string sockUserPwd=recvMsg;
        int pos=sockUserPwd.find('%');//获得用户名与密码的分段点
+       int upLen=sockUserPwd.length();
        string userState;
        string sockPwd;
        string sockUser;
 
        try
        {
+            printf("pos:%d length:%d",pos,upLen);
             userState=sockUserPwd.substr(0,1);//获取用户是上线请求还是下线请求
             sockUser=sockUserPwd.substr(1,pos-1);
-            sockPwd=sockUserPwd.substr(pos+1,sockUserPwd.length());
+            sockPwd=sockUserPwd.substr(pos+1,upLen);
        }
        catch( char* str)
        {
