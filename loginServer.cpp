@@ -158,14 +158,18 @@ int ReceiveMessage(int sockFd,char recvMsg[])
 int EstablishServer(struct sockaddr_in * addr,socklen_t addrLen,int port)
 {
     //socklen=sizeof(clientaddr);
-
+    const int on=1;
     int	listenfd=socket(AF_INET,SOCK_STREAM,0);
-    
 	if(listenfd<0)
 	{
 	  perror("socket error");
 	  return -1;
 	}
+
+    if(setsockopt(listenfd,SOL_SOCKET,SO_REUSEADDR,&on,sizeof(on))<0)
+    {
+        perror("setsockopt");
+    }
 
 	bzero(addr,addrLen);
 
