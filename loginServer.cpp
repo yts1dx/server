@@ -45,8 +45,9 @@ void CreateDbXml(Connection*conn,string fileName);
 void* ClientService(void*arg);
 void SendAllFile(int clientFd,Connection*conn);
 string GetUserId(Connection* conn,string user);
+ssize_t writen(int fd,const void * vptr,size_t n);
 ssize_t readn(int fd,void * vptr,size_t n);
-ssize_t writen(int fd,void * vptr,size_t n);
+
 map<string,string> G_userState; // 用来记录用户的在线信息
 pthread_mutex_t f_lock=PTHREAD_MUTEX_INITIALIZER;
 
@@ -88,36 +89,41 @@ int main()
 
 int SendMessage(int socketFd,char * sendBuffer,int sendLen)
 {
-    //发送数据的长度
+    // //发送数据的长度
+    // char len[5];
+    // snprintf(len,sizeof(len),"%04d",sendLen);
+    // if(send(socketFd,len,sizeof(len)-1,0)<0)
+    // {
+    //     perror("send :");
+    //     return -1;
+    // }
+
+    // //发送数据
+    // int sendRecv;
+    // int offset=0;//数据包中已经发送的字节数
+    // int dataLeft=sendLen;//数据包中已经发送的字节数
+    // int rstLen=0; //用来保存一次发送数据所发送的字节数
+    
+    // while(dataLeft>0)
+    //   {
+	// if((rstLen=send(socketFd,sendBuffer,sendLen,0))<0)
+	//   {
+	//     perror("send sendBuffer:");
+	//     return -1;
+	//   }
+
+	// offset+=rstLen;
+	// dataLeft-=rstLen;
+    //   }
+
+    // return offset;
+
     char len[5];
     snprintf(len,sizeof(len),"%04d",sendLen);
-    if(send(socketFd,len,sizeof(len)-1,0)<0)
-    {
-        perror("send :");
-        return -1;
-    }
+    writen(socketFd,len,sizeof(len)-1);
 
-    //发送数据
-    int sendRecv;
-    int offset=0;//数据包中已经发送的字节数
-    int dataLeft=sendLen;//数据包中已经发送的字节数
-    int rstLen=0; //用来保存一次发送数据所发送的字节数
-    
-    while(dataLeft>0)
-      {
-	if((rstLen=send(socketFd,sendBuffer,sendLen,0))<0)
-	  {
-	    perror("send sendBuffer:");
-	    return -1;
-	  }
-
-	offset+=rstLen;
-	dataLeft-=rstLen;
-      }
-
-    return offset;
-
-    
+    int sendRst=writen(socketFd,sendBuffer,sendLen);
+    return sendRst;
 }
 
 int ReceiveMessage(int sockFd,char recvMsg[])
@@ -388,7 +394,14 @@ unsigned long get_file_size(const char *path)
 //由数据库生成xml文件
 void CreateDbXml(Connection*conn,string fileName)
 {
-   string table=fileName.substr(0,fileName.find('.'));
+    
+   int findrst=fileName.find('.');
+   if(findrst==-1)
+   {
+       printf("can not find \',\'\n");
+       pthread_exit((void*)0);
+   }
+   string table=fileName.substr(0,findrst);
    Statement *stmt=conn->createStatement("select * from "+table);
    ResultSet *rs=stmt->executeQuery();
    
@@ -453,9 +466,22 @@ void  *ClientService(void*arg)
 
        string sockUserPwd=recvMsg;
        int pos=sockUserPwd.find('%');//获得用户名与密码的分段点
-       string userState=sockUserPwd.substr(0,1);//获取用户是上线请求还是下线请求
-       string sockUser=sockUserPwd.substr(1,pos-1);
-       string sockPwd=sockUserPwd.substr(pos+1,sockUserPwd.length());
+       string userState;
+       string sockPwd;
+       string sockUser;
+
+       try
+       {
+            userState=sockUserPwd.substr(0,1);//获取用户是上线请求还是下线请求
+            sockUser=sockUserPwd.substr(1,pos-1);
+            sockPwd=sockUserPwd.substr(pos+1,sockUserPwd.length());
+       }
+       catch( char* str)
+       {
+           printf("substr error in clientservice\n");
+           pthread_exit((void*)0);
+       }
+       
        cout<<"receive user: "<<sockUser<<"  pwd: "<<sockPwd<<" requst: "<<userState<<endl;
 
        //验证用户名密码,对于用户验证的大体流程是，首先验证用户名密码是否正确，如果错误发送错误信息给客户端
