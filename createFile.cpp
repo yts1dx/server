@@ -2,15 +2,15 @@
 
 void CreateAllFile(Connection *conn,string userName)
 {
-     CreateAnalog(conn);
+      CreateAnalog(conn);
 
-     CreateState(conn);
+      CreateState(conn);
 
-     CreateAlarmMap(conn);
+      CreateAlarmMap(conn);
 
-     CreateStateMap(conn);
+      CreateStateMap(conn);
 
-     CreateIdNumberMap(conn,userName);
+      CreateIdNumberMap(conn,userName);
 
      CreateCarGroup(conn,userName);
 }
@@ -142,9 +142,20 @@ void CreateCarGroup(Connection*conn,string userName)
     char content[1024];
     
     bzero(content,sizeof(content));
-    snprintf(content,sizeof(content),"哈尔滨公交\r\n");
+    //snprintf(content,sizeof(content),"哈尔滨公交\r\n");
+    Statement *stmtCmy=conn->createStatement("select clientname from t_user a,t_client b  where a.clientid=b.clientid and a.username='"+userName+"'");
+    ResultSet *rsCmy=stmtCmy->executeQuery();
+    if(rsCmy->next()==true)
+    {
+        string cmyName=rsCmy->getString(1)+"\r\n";
+        cout<<cmyName<<endl;
+        snprintf(content,sizeof(content),"%s",cmyName.c_str());
+    }
     fwrite(content,sizeof(char),strlen(content),file);
+    stmtCmy->closeResultSet(rsCmy);
+    conn->terminateStatement(stmtCmy);
 
+    
     Statement *stmt=conn->createStatement("select distinct t_vehiclegroup.groupname from t_vehicleInfo,t_vehiclegroup,t_user where t_vehicleinfo.clientid=t_user.clientid and t_vehicleinfo.groupid=t_vehiclegroup.groupid and t_user.username='"+userName+"'");
     ResultSet *rs=stmt->executeQuery();
     
